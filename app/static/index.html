@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG Document Chatbot</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --accent:#22c55e; --border:#1f2937; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:860px; margin:0 auto; padding:24px 16px; }
+    h1 { margin:0 0 4px; font-size:1.5rem; } p.sub { color:var(--muted); margin:0 0 20px; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
+    #chat { min-height:280px; max-height:55vh; overflow:auto; }
+    .msg { padding:10px 12px; border-radius:10px; margin:8px 0; white-space:pre-wrap; line-height:1.45; }
+    .user { background:#1e293b; } .bot { background:#052e16; border:1px solid #14532d; }
+    .src { font-size:.8rem; color:var(--muted); margin-top:6px; }
+    form { display:flex; gap:8px; } input[type=text] { flex:1; padding:10px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); }
+    button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#052e16; font-weight:600; cursor:pointer; }
+    #status { color:var(--muted); font-size:.85rem; margin-top:8px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>📚 RAG Document Chatbot</h1>
+  <p class="sub">Upload PDFs or text files, then ask questions. Answers cite the passages they came from.</p>
+
+  <div class="card">
+    <form id="upload"><input type="file" id="files" multiple accept=".pdf,.txt,.md" /><button>Ingest</button></form>
+    <div id="status">Loading…</div>
+  </div>
+
+  <div class="card"><div id="chat"></div>
+    <form id="ask"><input type="text" id="q" placeholder="Ask something about your documents…" autocomplete="off" /><button>Ask</button></form>
+  </div>
+</main>
+<script>
+const chat = document.getElementById('chat'), statusEl = document.getElementById('status');
+function add(text, cls, sources) {
+  const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text;
+  if (sources && sources.length) {
+    const s = document.createElement('div'); s.className = 'src';
+    s.textContent = 'Sources: ' + sources.map(x => `[${x.id}] ${x.source} (${x.score})`).join('  ·  ');
+    d.appendChild(s);
+  }
+  chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+}
+async function refresh() {
+  const h = await (await fetch('/health')).json();
+  statusEl.textContent = `${h.chunks} chunks indexed · LLM ${h.llm_enabled ? 'enabled' : 'not configured (retrieval-only mode)'}`;
+}
+document.getElementById('upload').onsubmit = async e => {
+  e.preventDefault(); const files = document.getElementById('files').files; if (!files.length) return;
+  const fd = new FormData(); for (const f of files) fd.append('files', f);
+  statusEl.textContent = 'Ingesting…';
+  const r = await fetch('/ingest', { method: 'POST', body: fd });
+  if (!r.ok) { statusEl.textContent = 'Error: ' + (await r.json()).detail; return; }
+  refresh();
+};
+document.getElementById('ask').onsubmit = async e => {
+  e.preventDefault(); const q = document.getElementById('q'); if (!q.value.trim()) return;
+  add(q.value, 'user'); const body = JSON.stringify({ question: q.value }); q.value = '';
+  const r = await (await fetch('/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).json();
+  add(r.answer, 'bot', r.sources);
+};
+refresh();
+</script>
+</body>
+</html>
